@@ -38,7 +38,7 @@ let lastSeen = 0;
 const ESP32_TIMEOUT = 12000; 
 
 // --- Security State ---
-const CORRECT_PASSWORD = '12345678'; // আপনার ৮ ডিজিটের পাসওয়ার্ড এখানে দিন
+const CORRECT_PASSWORD = '11332244'; // আপনার ৮ ডিজিটের পাসওয়ার্ড এখানে দিন
 let loginAttempts = 0;
 let isBlocked = false;
 let blockUntil = 0;
