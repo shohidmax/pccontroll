@@ -8,17 +8,15 @@ const cors = require('cors');
 const app = express();
 const server = http.createServer(app);
 
-// --- CORS Configuration for Production ---
-const allowedOrigins = ['https://pccontroll.onrender.com', 'http://localhost:3000']; // Add your local dev URL if needed
+// --- CORS Configuration ---
+const allowedOrigins = ['https://pccontroll.onrender.com', 'http://localhost:3000'];
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
     }
-    return callback(null, true);
   },
 };
 
@@ -32,30 +30,20 @@ app.use(express.json());
 app.use(express.static('public'));
 
 // --- Global State ---
-let latestSensorData = {
-  dht11: { temperature: 'N/A', humidity: 'N/A' },
-  dht22: { temperature: 'N/A', humidity: 'N/A' },
-  dallas: { temperature: 'N/A' }
-};
 let pulseRequested = false;
 
 // --- API Endpoint for ESP32 ---
 app.post('/data', (req, res) => {
   console.log('Received data from ESP32:', req.body);
   
-  // Separate sensor data from the log
-  const { log, ...sensorData } = req.body;
-  latestSensorData = sensorData;
-
-  // Broadcast sensor data to the dashboard
-  io.emit('sensorData', latestSensorData);
+  const { log } = req.body;
   
   // Broadcast log data to the dashboard if it exists
   if (log && log.trim() !== "") {
     io.emit('esp32log', log);
   }
 
-  // Check if a pulse action is pending from the dashboard
+  // Check if a pulse action is pending
   let actionToSend = 'none';
   if (pulseRequested) {
     actionToSend = 'pulse';
@@ -71,14 +59,10 @@ app.post('/data', (req, res) => {
 io.on('connection', (socket) => {
   console.log('A user connected to the dashboard.');
 
-  // Send the current sensor data on connection
-  socket.emit('initialState', { sensorData: latestSensorData });
-
   // Listen for the 'pulseRelay' event from the dashboard
   socket.on('pulseRelay', () => {
     pulseRequested = true;
     console.log('Pulse request received. Waiting for ESP32 to connect.');
-    // Notify all dashboards that the pulse was triggered
     io.emit('pulseTriggered');
   });
 
