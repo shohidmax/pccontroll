@@ -1,69 +1,77 @@
-// server.js
-// This server acts as the central hub for communication.
-// It serves the web dashboard and relays messages between the dashboard and the ESP8266.
-
+// Import required modules
 const express = require('express');
 const http = require('http');
-const { Server } = require("socket.io");
+const socketIo = require('socket.io');
+const cors = require('cors');
 
+// --- Server Setup ---
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
-const port = 3000;
+const io = socketIo(server, {
+  cors: {
+    origin: "*", // Allow all origins for simplicity. For production, restrict this.
+    methods: ["GET", "POST"]
+  }
+});
 
-// Serve the static HTML file for the dashboard
-app.use(express.static('public'));
+// --- Middleware ---
+app.use(cors());
+app.use(express.json()); // Middleware to parse JSON bodies from ESP32 requests
+app.use(express.static('public')); // Serve static files (like your dashboard)
 
-let relayState = false; // Keep track of the relay's last known state on the server
-let lastSensorData = {}; // Keep track of the last sensor data
+// --- Global State ---
+// Store the latest sensor data and relay state
+let latestSensorData = {
+  dht11: { temperature: 'N/A', humidity: 'N/A' },
+  dht22: { temperature: 'N/A', humidity: 'N/A' },
+  dallas: { temperature: 'N/A' }
+};
+let relayState = false; // false = OFF, true = ON
 
-// Handle WebSocket connections
+// --- API Endpoint for ESP32 ---
+// The ESP32 will send its sensor data to this endpoint
+app.post('/data', (req, res) => {
+  console.log('Received data from ESP32:', req.body);
+  
+  // Update server state with the new data
+  latestSensorData = req.body;
+  
+  // Broadcast the new data to all connected dashboard clients
+  io.emit('sensorData', latestSensorData);
+  
+  // Respond to the ESP32 to acknowledge receipt
+  res.status(200).json({ status: 'success', relayState: relayState });
+});
+
+// --- Real-time Communication with Dashboard ---
 io.on('connection', (socket) => {
-    console.log(`A user connected: ${socket.id}`);
+  console.log('A user connected to the dashboard.');
 
-    // Send the current state to the newly connected client
-    socket.emit('relay-state-update', relayState);
-    socket.emit('update-sensor-data', lastSensorData); // Send last known sensor data
+  // Immediately send the current state to the newly connected client
+  socket.emit('initialState', { sensorData: latestSensorData, relayState: relayState });
 
-    // Listen for control commands from the web dashboard
-    socket.on('control-relay', (newState) => {
-        relayState = newState;
-        console.log(`Received command from web: Turn relay ${relayState ? 'ON' : 'OFF'}`);
+  // Listen for the 'toggleRelay' event from the dashboard
+  socket.on('toggleRelay', () => {
+    relayState = !relayState; // Flip the state
+    console.log(`Relay state changed to: ${relayState ? 'ON' : 'OFF'}`);
+    
+    // Broadcast the new relay state to all clients
+    io.emit('relayStateChange', relayState);
+  });
 
-        // Broadcast the new state to ALL connected clients (including the ESP8266)
-        io.emit('relay-state-update', relayState);
-    });
-
-    // Listen for sensor data from the ESP8266
-    socket.on('sensor-data', (data) => {
-        try {
-            // The data is coming in as a stringified JSON, so we parse it.
-            const sensorReadings = JSON.parse(data);
-            lastSensorData = sensorReadings;
-            console.log('Received sensor data from ESP8266:', lastSensorData);
-            
-            // Broadcast the new data to all web clients (but not back to the ESP)
-            socket.broadcast.emit('update-sensor-data', lastSensorData);
-        } catch (e) {
-            console.error("Error parsing sensor data from ESP8266:", e);
-        }
-    });
-
-    // Listen for status reports from the ESP8266 (optional but good for sync)
-    socket.on('esp-status-report', (espReportedState) => {
-        relayState = espReportedState;
-        console.log(`ESP8266 reports state is now: ${relayState ? 'ON' : 'OFF'}`);
-        // Broadcast this confirmed state to all web clients
-        socket.broadcast.emit('relay-state-update', relayState);
-    });
-
-    socket.on('disconnect', () => {
-        console.log(`User disconnected: ${socket.id}`);
-    });
+  socket.on('disconnect', () => {
+    console.log('User disconnected.');
+  });
 });
 
-server.listen(port, () => {
-    console.log(`Server is running!`);
-    console.log(`Open your browser to http://<YOUR_SERVER_IP>:${port}`);
+// --- Serve the Dashboard ---
+// We'll create an HTML file for this in the next step
+app.get('/', (req, res) => {
+  res.sendFile(__dirname + '/public/index.html');
 });
 
+// --- Start the Server ---
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Server is running on http://localhost:${PORT}`);
+});
