@@ -34,43 +34,86 @@ app.use(express.static('public'));
 
 // --- Global State ---
 let pulseRequested = false;
-let lastSeen = 0; // Track the last time ESP32 checked in
-const ESP32_TIMEOUT = 12000; // 12 seconds timeout
+let lastSeen = 0; 
+const ESP32_TIMEOUT = 12000; 
+
+// --- Security State ---
+const CORRECT_PASSWORD = '12345678'; // আপনার ৮ ডিজিটের পাসওয়ার্ড এখানে দিন
+let loginAttempts = 0;
+let isBlocked = false;
+let blockUntil = 0;
+const BLOCK_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
 
 // --- API Endpoint for ESP32 ---
 app.post('/data', (req, res) => {
   console.log('Received data from ESP32:', req.body);
-  lastSeen = Date.now(); // Update the timestamp
+  lastSeen = Date.now();
   
   const { log } = req.body;
-  
-  // Broadcast log data to the dashboard if it exists
   if (log && log.trim() !== "") {
     io.emit('esp32log', log);
   }
 
-  // Check if a pulse action is pending
   let actionToSend = 'none';
   if (pulseRequested) {
     actionToSend = 'pulse';
-    pulseRequested = false; // Reset the flag
+    pulseRequested = false; 
     console.log('Pulse action command sent to ESP32.');
   }
   
-  // Respond to the ESP32 with the action command
   res.status(200).json({ action: actionToSend });
 });
 
 // --- Real-time Communication with Dashboard ---
 io.on('connection', (socket) => {
-  console.log('A user connected to the dashboard.');
+  console.log('A user is trying to connect.');
+  socket.isAuthenticated = false; // Initially not authenticated
+
+  // --- Login Logic ---
+  socket.on('loginAttempt', (password) => {
+    // 1. Check if the user is currently blocked
+    if (isBlocked && Date.now() < blockUntil) {
+      const remainingTime = Math.ceil((blockUntil - Date.now()) / 60000);
+      socket.emit('loginBlock', { message: `Too many failed attempts. Try again in ${remainingTime} minutes.` });
+      return;
+    }
+    // 2. Reset block if the time has passed
+    if (isBlocked && Date.now() >= blockUntil) {
+      isBlocked = false;
+      loginAttempts = 0;
+    }
+
+    // 3. Check if the password is correct
+    if (password === CORRECT_PASSWORD) {
+      loginAttempts = 0;
+      socket.isAuthenticated = true;
+      socket.emit('loginSuccess');
+      console.log('A user successfully authenticated.');
+    } else {
+      loginAttempts++;
+      if (loginAttempts >= 3) {
+        isBlocked = true;
+        blockUntil = Date.now() + BLOCK_DURATION;
+        const remainingTime = 5;
+        socket.emit('loginBlock', { message: `Too many failed attempts. Try again in ${remainingTime} minutes.` });
+      } else {
+        socket.emit('loginFail', { message: 'Incorrect password.' });
+      }
+    }
+  });
   
-  // Immediately send current status to the new user
-  const isOnline = (Date.now() - lastSeen) < ESP32_TIMEOUT;
-  socket.emit('esp32Status', { status: isOnline ? 'Online' : 'Offline' });
+  // Immediately send current status to authenticated users
+  if (socket.isAuthenticated) {
+    const isOnline = (Date.now() - lastSeen) < ESP32_TIMEOUT;
+    socket.emit('esp32Status', { status: isOnline ? 'Online' : 'Offline' });
+  }
 
   // Listen for the 'pulseRelay' event from the dashboard
   socket.on('pulseRelay', () => {
+    if (!socket.isAuthenticated) {
+      console.log('Unauthorized pulse request received.');
+      return; // Ignore if not authenticated
+    }
     pulseRequested = true;
     console.log('Pulse request received. Waiting for ESP32 to connect.');
     io.emit('pulseTriggered');
@@ -82,12 +125,15 @@ io.on('connection', (socket) => {
 });
 
 // --- ESP32 Status Checker ---
-// Periodically check if the ESP32 is still connected
 setInterval(() => {
   const isOnline = (Date.now() - lastSeen) < ESP32_TIMEOUT;
-  io.emit('esp32Status', { status: isOnline ? 'Online' : 'Offline' });
-}, 5000); // Check every 5 seconds
-
+  // Send status only to authenticated clients
+  io.sockets.sockets.forEach((socket) => {
+    if (socket.isAuthenticated) {
+      socket.emit('esp32Status', { status: isOnline ? 'Online' : 'Offline' });
+    }
+  });
+}, 5000); 
 
 // --- Serve the Dashboard ---
 app.get('/', (req, res) => {
