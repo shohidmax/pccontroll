@@ -101,6 +101,13 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('restartRelay', () => {
+        if (loggedIn && deviceStatus === 'Online') {
+            actionToTake = 'restart';
+            io.emit('restartTriggered');
+        }
+    });
+
     socket.on('disconnect', () => {});
 });
 

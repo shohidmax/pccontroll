@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PC Control Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Google Font Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Socket.IO client script served automatically by the Socket.IO server -->
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+    <div class="stars"></div>
+    <div class="twinkling"></div>
+
+    <!-- Login Section -->
+    <div id="login-container" class="glass-card active">
+        <div class="card-header">
+            <div class="logo">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                    <line x1="8" y1="21" x2="16" y2="21"></line>
+                    <line x1="12" y1="17" x2="12" y2="21"></line>
+                </svg>
+            </div>
+            <h1>PC Control System</h1>
+            <p>Access control panel and real-time diagnostics</p>
+        </div>
+        <form id="login-form">
+            <div class="input-group">
+                <label for="password">Security Password</label>
+                <div class="password-wrapper">
+                    <input type="password" id="password" placeholder="••••••••" required autocomplete="current-password">
+                </div>
+            </div>
+            <div id="login-error" class="error-msg"></div>
+            <button type="submit" id="login-btn" class="primary-btn">
+                <span>Unlock Control Center</span>
+            </button>
+        </form>
+    </div>
+
+    <!-- Main Dashboard Section (Hidden by default) -->
+    <div id="dashboard-container" class="dashboard-layout">
+        <!-- Header -->
+        <header class="dashboard-header glass-card">
+            <div class="header-left">
+                <div class="system-title">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="title-icon">
+                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                        <line x1="8" y1="21" x2="16" y2="21"></line>
+                        <line x1="12" y1="17" x2="12" y2="21"></line>
+                    </svg>
+                    <div>
+                        <h2>PC Control Dashboard</h2>
+                        <span class="sub-text">Remote PC controller node</span>
+                    </div>
+                </div>
+            </div>
+            <div class="header-right">
+                <!-- Status badges -->
+                <div class="status-badge" id="server-status">
+                    <span class="indicator red"></span>
+                    <span class="status-text">Server: Offline</span>
+                </div>
+                <div class="status-badge" id="device-status">
+                    <span class="indicator red"></span>
+                    <span class="status-text">ESP32: Offline</span>
+                </div>
+                <button id="logout-btn" class="icon-btn" title="Logout">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                        <polyline points="16 17 21 12 16 7"></polyline>
+                        <line x1="21" y1="12" x2="9" y2="12"></line>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content Grid -->
+        <main class="dashboard-grid">
+            <!-- Left Side: Controls & Sensors -->
+            <div class="grid-column">
+                <!-- PC Controls Card -->
+                <section class="glass-card control-card">
+                    <h3>PC Operations</h3>
+                    <p class="section-desc">Trigger physical relay presses to control the PC state.</p>
+                    <div class="control-actions">
+                        <button id="pulse-btn" class="action-btn power-btn" disabled>
+                            <div class="btn-content">
+                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+                                    <line x1="12" y1="2" x2="12" y2="12"></line>
+                                </svg>
+                                <span class="btn-title">Pulse Power Button</span>
+                                <span class="btn-subtitle">Simulate 500ms push</span>
+                            </div>
+                            <div class="btn-ripple"></div>
+                        </button>
+                        
+                        <button id="restart-btn" class="action-btn restart-btn" disabled>
+                            <div class="btn-content">
+                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+                                </svg>
+                                <span class="btn-title">Pulse Reset Button</span>
+                                <span class="btn-subtitle">Simulate reset press</span>
+                            </div>
+                            <div class="btn-ripple"></div>
+                        </button>
+                    </div>
+                    <div id="action-feedback" class="action-feedback-hidden">Action sent successfully.</div>
+                </section>
+
+                <!-- Environmental Sensors Card -->
+                <section class="glass-card sensor-card">
+                    <h3>Environmental Telemetry</h3>
+                    <p class="section-desc">Real-time temperature and humidity readings from the ESP32 node.</p>
+                    
+                    <div class="sensors-container">
+                        <!-- DHT11 Sensor -->
+                        <div class="sensor-group">
+                            <h4 class="sensor-title">
+                                <span class="sensor-tag">DHT11</span> External Node
+                            </h4>
+                            <div class="telemetry-grid">
+                                <div class="telemetry-item" id="dht11-temp">
+                                    <div class="telemetry-label">Temperature</div>
+                                    <div class="telemetry-value-container">
+                                        <span class="value">--</span>
+                                        <span class="unit">°C</span>
+                                    </div>
+                                    <div class="progress-bar-container">
+                                        <div class="progress-bar-fill temp-color" style="width: 0%"></div>
+                                    </div>
+                                </div>
+                                <div class="telemetry-item" id="dht11-humi">
+                                    <div class="telemetry-label">Humidity</div>
+                                    <div class="telemetry-value-container">
+                                        <span class="value">--</span>
+                                        <span class="unit">%</span>
+                                    </div>
+                                    <div class="progress-bar-container">
+                                        <div class="progress-bar-fill humi-color" style="width: 0%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- DHT22 Sensor -->
+                        <div class="sensor-group">
+                            <h4 class="sensor-title">
+                                <span class="sensor-tag dht22-tag">DHT22</span> PC Intake
+                            </h4>
+                            <div class="telemetry-grid">
+                                <div class="telemetry-item" id="dht22-temp">
+                                    <div class="telemetry-label">Temperature</div>
+                                    <div class="telemetry-value-container">
+                                        <span class="value">--</span>
+                                        <span class="unit">°C</span>
+                                    </div>
+                                    <div class="progress-bar-container">
+                                        <div class="progress-bar-fill temp-color" style="width: 0%"></div>
+                                    </div>
+                                </div>
+                                <div class="telemetry-item" id="dht22-humi">
+                                    <div class="telemetry-label">Humidity</div>
+                                    <div class="telemetry-value-container">
+                                        <span class="value">--</span>
+                                        <span class="unit">%</span>
+                                    </div>
+                                    <div class="progress-bar-container">
+                                        <div class="progress-bar-fill humi-color" style="width: 0%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Right Side: Log Console / Output -->
+            <div class="grid-column">
+                <section class="glass-card terminal-card">
+                    <div class="terminal-header">
+                        <div class="terminal-dots">
+                            <span class="dot red"></span>
+                            <span class="dot yellow"></span>
+                            <span class="dot green"></span>
+                        </div>
+                        <span class="terminal-title">ESP32 Console Log</span>
+                        <button id="clear-logs-btn" class="text-btn">Clear Logs</button>
+                    </div>
+                    <div class="terminal-body" id="log-console">
+                        <div class="log-line system-msg">[SYSTEM] Connecting to server socket console...</div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
