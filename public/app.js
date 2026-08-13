@@ -73,14 +73,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!deviceOnline) return;
         triggerRipple(pulseBtn);
         socket.emit('pulseRelay');
-        showFeedback('Triggered power button pulse...');
+        showFeedback('Triggered power button 1s pulse...');
     });
 
     restartBtn.addEventListener('click', () => {
         if (!deviceOnline) return;
         triggerRipple(restartBtn);
         socket.emit('restartRelay');
-        showFeedback('Triggered reset button pulse...');
+        showFeedback('Triggered reset button 1s pulse...');
     });
 
     // --- Helper Functions ---
@@ -148,11 +148,12 @@ document.addEventListener('DOMContentLoaded', () => {
         socket.on('deviceStatus', (data) => {
             const isOnline = (data.status === 'Online');
             deviceOnline = isOnline;
-            updateStatusBadge(deviceStatus, isOnline, `ESP32: ${data.status}`);
+            const statusText = isOnline && data.ssid ? `ESP32: Online (${data.ssid})` : `ESP32: ${data.status}`;
+            updateStatusBadge(deviceStatus, isOnline, statusText);
             
             if (isOnline) {
                 enableControlButtons();
-                appendLog('SYSTEM', 'ESP32 controller node is ONLINE.');
+                appendLog('SYSTEM', `ESP32 controller node is ONLINE (WiFi: ${data.ssid || 'Unknown'}).`);
             } else {
                 disableControlButtons();
                 appendLog('WARN', 'ESP32 controller node went OFFLINE.');
@@ -184,11 +185,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         socket.on('pulseTriggered', () => {
-            appendLog('SUCCESS', 'Server processed Power button pulse action.');
+            appendLog('SUCCESS', 'Server processed Power button 1s pulse action.');
         });
 
         socket.on('restartTriggered', () => {
-            appendLog('SUCCESS', 'Server processed Reset button pulse action.');
+            appendLog('SUCCESS', 'Server processed Reset button 1s pulse action.');
         });
     }
 

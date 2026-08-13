@@ -27,32 +27,38 @@ let actionToTake = 'none';
 let lastSeenTimeout;
 let deviceStatus = 'Offline';
 let latestSensorData = {
-    dht11: { temperature: null, humidity: null }
+    dht11: { temperature: null, humidity: null },
+    ssid: null
 };
 
 const loginAttempts = {};
 const BLOCK_DURATION = 5 * 60 * 1000;
+let esp32Socket = null;
 
 app.post('/data', (req, res) => {
-    const { log, dht11 } = req.body;
+    const { log, dht11, ssid } = req.body;
     
     if (log) {
         io.emit('deviceLog', log);
     }
 
     if (dht11) latestSensorData.dht11 = dht11;
+    if (ssid) latestSensorData.ssid = ssid;
     
     io.emit('sensorUpdate', latestSensorData);
 
     if (deviceStatus !== 'Online') {
         deviceStatus = 'Online';
-        io.emit('deviceStatus', { status: 'Online' });
+        io.emit('deviceStatus', { status: 'Online', ssid: latestSensorData.ssid });
     }
 
     clearTimeout(lastSeenTimeout);
     lastSeenTimeout = setTimeout(() => {
-        deviceStatus = 'Offline';
-        io.emit('deviceStatus', { status: 'Offline' });
+        if (!esp32Socket) {
+            deviceStatus = 'Offline';
+            latestSensorData.ssid = null;
+            io.emit('deviceStatus', { status: 'Offline', ssid: null });
+        }
     }, 15000); 
 
     res.json({ action: actionToTake });
@@ -77,7 +83,7 @@ io.on('connection', (socket) => {
             loggedIn = true;
             delete loginAttempts[ip];
             socket.emit('loginSuccess');
-            socket.emit('deviceStatus', { status: deviceStatus });
+            socket.emit('deviceStatus', { status: deviceStatus, ssid: latestSensorData.ssid });
             socket.emit('sensorUpdate', latestSensorData);
         } else {
             loginAttempts[ip] = loginAttempts[ip] || { count: 0 };
@@ -92,21 +98,60 @@ io.on('connection', (socket) => {
         }
     });
 
+    // ESP32 connection events via Socket.IO
+    socket.on('esp32Status', (data) => {
+        esp32Socket = socket;
+        deviceStatus = 'Online';
+        latestSensorData.ssid = data.ssid;
+        io.emit('deviceStatus', { status: 'Online', ssid: data.ssid });
+        console.log(`[SYSTEM] ESP32 registered via Socket.IO. SSID: ${data.ssid}`);
+    });
+
+    socket.on('sensorUpdate', (data) => {
+        if (socket === esp32Socket) {
+            latestSensorData.dht11 = data.dht11;
+            if (data.ssid) latestSensorData.ssid = data.ssid;
+            io.emit('sensorUpdate', latestSensorData);
+        }
+    });
+
+    socket.on('esp32Log', (logMsg) => {
+        if (socket === esp32Socket) {
+            io.emit('deviceLog', logMsg);
+        }
+    });
+
     socket.on('pulseRelay', () => {
-        if (loggedIn && deviceStatus === 'Online') {
-            actionToTake = 'pulse';
+        if (loggedIn) {
+            if (esp32Socket) {
+                esp32Socket.emit('action', { command: 'pulse' });
+            } else {
+                actionToTake = 'pulse';
+            }
             io.emit('pulseTriggered');
         }
     });
 
     socket.on('restartRelay', () => {
-        if (loggedIn && deviceStatus === 'Online') {
-            actionToTake = 'restart';
+        if (loggedIn) {
+            if (esp32Socket) {
+                esp32Socket.emit('action', { command: 'restart' });
+            } else {
+                actionToTake = 'restart';
+            }
             io.emit('restartTriggered');
         }
     });
 
-    socket.on('disconnect', () => {});
+    socket.on('disconnect', () => {
+        if (socket === esp32Socket) {
+            esp32Socket = null;
+            deviceStatus = 'Offline';
+            latestSensorData.ssid = null;
+            io.emit('deviceStatus', { status: 'Offline', ssid: null });
+            console.log('[SYSTEM] ESP32 disconnected.');
+        }
+    });
 });
 
 server.listen(PORT, () => {

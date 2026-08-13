@@ -18,12 +18,13 @@
 #include <ArduinoJson.h>
 #include "DHT.h"
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
+#include <SocketIOclient.h>
 
 // --- CONFIGURATION SETUP ---
 // WiFi credentials are managed dynamically via WiFiManager captive portal.
-const char* server_url = "https://pccontroll.espserver.site/data";
-
-#define POLL_INTERVAL_MS 5000 // Send data and fetch action every 5 seconds
+const char* socket_host = "pccontroll.espserver.site";
+const int socket_port = 443;
+const char* socket_path = "/socket.io/?EIO=4";
 
 // --- HARDWARE CONFIGURATION ---
 #define DHT11_PIN       4
@@ -36,13 +37,16 @@ const char* server_url = "https://pccontroll.espserver.site/data";
 
 #define DHT11_TYPE DHT11
 
-// --- INSTANTIATE SENSORS ---
+// --- INSTANTIATE SENSORS & SOCKET.IO ---
 DHT dht11(DHT11_PIN, DHT11_TYPE);
+SocketIOclient socketIO;
 
 // --- GLOBAL VARIABLES ---
 unsigned long lastPollTime = 0;
 String pendingLogMsg = "";
 bool bootLogSent = false;
+bool deviceOnline = false;
+#define POLL_INTERVAL_MS 5000
 
 // Helper macros for relay states
 const int RELAY_ON = RELAY_ACTIVE_LOW ? LOW : HIGH;
@@ -132,11 +136,20 @@ void setup() {
 
   // Connect to Wi-Fi using WiFiManager
   setupWiFiManager();
+
+  // Connect to Socket.IO Server
+  Serial.print("[IOc] Connecting to Socket.IO server at wss://");
+  Serial.println(socket_host);
+  socketIO.beginSSL(socket_host, socket_port, socket_path);
+  socketIO.onEvent(socketIOEvent);
   
   pendingLogMsg = "[SYSTEM] ESP32 controller booted up and connected to WiFi.";
 }
 
 void loop() {
+  // Service Socket.IO events
+  socketIO.loop();
+
   // Check for serial input to reset settings
   if (Serial.available() > 0) {
     String cmd = Serial.readStringUntil('\n');
@@ -159,7 +172,7 @@ void loop() {
   unsigned long currentMillis = millis();
   if (currentMillis - lastPollTime >= POLL_INTERVAL_MS) {
     lastPollTime = currentMillis;
-    sendDataAndCheckAction();
+    sendSensorData();
   }
 }
 
@@ -185,21 +198,13 @@ void connectToWiFi() {
   }
 }
 
-void sendDataAndCheckAction() {
+void sendSensorData() {
   if (WiFi.status() != WL_CONNECTED) return;
-
-  HTTPClient http;
   
-  // Read DHT11
   float t11 = dht11.readTemperature();
   float h11 = dht11.readHumidity();
 
-  // Create JSON Document
-  // StaticJsonDocument is compatible with ArduinoJson v6
-  // (In v7, JsonDocument can be used directly: JsonDocument doc;)
-  StaticJsonDocument<512> doc;
-
-  // Add Sensor Data
+  StaticJsonDocument<256> doc;
   JsonObject dht11Obj = doc.createNestedObject("dht11");
   if (!isnan(t11) && !isnan(h11)) {
     dht11Obj["temperature"] = t11;
@@ -207,68 +212,95 @@ void sendDataAndCheckAction() {
   } else {
     dht11Obj["temperature"] = serialized("null");
     dht11Obj["humidity"] = serialized("null");
-    Serial.println("[WARN] DHT11 read failed.");
   }
+  doc["ssid"] = WiFi.SSID();
 
-  // Include queued logs if any
+  // If there is a pending log message, send it as a log event
   if (pendingLogMsg != "") {
-    doc["log"] = pendingLogMsg;
-    pendingLogMsg = ""; // Reset after sending
+    sendESP32Log(pendingLogMsg);
+    pendingLogMsg = "";
   }
 
   String jsonPayload;
   serializeJson(doc, jsonPayload);
-
-  // Send HTTP Post
-  http.begin(server_url);
-  http.addHeader("Content-Type", "application/json");
   
-  Serial.print("[HTTP] POST payload: ");
-  Serial.println(jsonPayload);
-
-  int httpCode = http.POST(jsonPayload);
-
-  if (httpCode > 0) {
-    Serial.print("[HTTP] POST Response Code: ");
-    Serial.println(httpCode);
-
-    if (httpCode == HTTP_CODE_OK) {
-      String responseBody = http.getString();
-      Serial.print("[HTTP] Response payload: ");
-      Serial.println(responseBody);
-
-      parseActionResponse(responseBody);
-    }
-  } else {
-    Serial.print("[ERROR] POST Request failed, error: ");
-    Serial.println(http.errorToString(httpCode).c_str());
-  }
-
-  http.end();
+  String msg = "[\"sensorUpdate\"," + jsonPayload + "]";
+  socketIO.sendEVENT(msg);
+  Serial.print("[IOc] Sent sensorUpdate: ");
+  Serial.println(msg);
 }
 
-void parseActionResponse(String responseJson) {
+void sendESP32Status() {
   StaticJsonDocument<128> doc;
-  DeserializationError error = deserializeJson(doc, responseJson);
+  doc["status"] = "Online";
+  doc["ssid"] = WiFi.SSID();
+  
+  String jsonPayload;
+  serializeJson(doc, jsonPayload);
+  
+  String msg = "[\"esp32Status\"," + jsonPayload + "]";
+  socketIO.sendEVENT(msg);
+  Serial.print("[IOc] Sent esp32Status: ");
+  Serial.println(msg);
+}
 
-  if (error) {
-    Serial.print("[ERROR] JSON deserialization failed: ");
-    Serial.println(error.c_str());
-    return;
-  }
+void sendESP32Log(String logMsg) {
+  String msg = "[\"esp32Log\",\"" + logMsg + "\"]";
+  socketIO.sendEVENT(msg);
+  Serial.print("[IOc] Sent esp32Log: ");
+  Serial.println(msg);
+}
 
-  const char* action = doc["action"];
-  if (action == nullptr) return;
-
-  String actionStr = String(action);
-  if (actionStr == "pulse") {
+void handleAction(String command) {
+  if (command == "pulse") {
     Serial.println("[ACTION] Power Button pulse triggered.");
-    pendingLogMsg = "[INFO] ESP32 received Power Pulse command from server.";
+    sendESP32Log("[INFO] ESP32 received Power Pulse command from server.");
     triggerRelay(POWER_RELAY_PIN, "Power Button");
-  } else if (actionStr == "restart") {
+  } else if (command == "restart") {
     Serial.println("[ACTION] Reset Button pulse triggered.");
-    pendingLogMsg = "[INFO] ESP32 received Reset Pulse command from server.";
+    sendESP32Log("[INFO] ESP32 received Reset Pulse command from server.");
     triggerRelay(RESET_RELAY_PIN, "Reset Button");
+  }
+}
+
+void socketIOEvent(socketIOmessageType_t type, uint8_t * payload, size_t length) {
+  switch(type) {
+    case sIOtype_DISCONNECT:
+      Serial.println("[IOc] Disconnected!");
+      deviceOnline = false;
+      break;
+    case sIOtype_CONNECT:
+      Serial.println("[IOc] Connected!");
+      socketIO.send(sIOtype_CONNECT, "/");
+      deviceOnline = true;
+      sendESP32Status();
+      break;
+    case sIOtype_EVENT: {
+      String payloadStr = (char*)payload;
+      Serial.print("[IOc] Event: ");
+      Serial.println(payloadStr);
+
+      DynamicJsonDocument doc(512);
+      DeserializationError error = deserializeJson(doc, payloadStr);
+      if (error) {
+        Serial.print("[ERROR] Deserialization failed: ");
+        Serial.println(error.c_str());
+        return;
+      }
+
+      String eventName = doc[0];
+      if (eventName == "action") {
+        JsonObject data = doc[1];
+        String command = data["command"];
+        handleAction(command);
+      }
+      break;
+    }
+    case sIOtype_ACK:
+    case sIOtype_ERROR:
+    case sIOtype_BINARY_EVENT:
+    case sIOtype_BINARY_ACK:
+      break;
   }
 }
 
@@ -282,12 +314,12 @@ void triggerRelay(int pin, String name) {
   // Press button (activate relay)
   digitalWrite(pin, RELAY_ON);
   
-  // Hold button for 500 milliseconds
-  delay(500);
+  // Hold button for 1 second (1000ms)
+  delay(1000);
   
   // Release button (deactivate relay)
   digitalWrite(pin, RELAY_OFF);
   
   Serial.println("[HARDWARE] Relay deactivated.");
-  pendingLogMsg = "[SUCCESS] " + name + " relay pulse completed (500ms).";
+  sendESP32Log("[SUCCESS] " + name + " relay pulse completed (1s).");
 }
