@@ -31,11 +31,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const dht11Humi = document.querySelector('#dht11-humi .value');
     const dht11HumiBar = document.querySelector('#dht11-humi .progress-bar-fill');
     
-    const dht22Temp = document.querySelector('#dht22-temp .value');
-    const dht22TempBar = document.querySelector('#dht22-temp .progress-bar-fill');
-    const dht22Humi = document.querySelector('#dht22-humi .value');
-    const dht22HumiBar = document.querySelector('#dht22-humi .progress-bar-fill');
-    
     // Log console
     const logConsole = document.getElementById('log-console');
     const clearLogsBtn = document.getElementById('clear-logs-btn');
@@ -230,18 +225,6 @@ document.addEventListener('DOMContentLoaded', () => {
             
             dht11Humi.textContent = h !== null && h !== undefined ? parseFloat(h).toFixed(0) : '--';
             dht11HumiBar.style.width = h !== null && h !== undefined ? `${Math.min(100, Math.max(0, h))}%` : '0%';
-        }
-        
-        // DHT22
-        if (data.dht22) {
-            const t = data.dht22.temperature;
-            const h = data.dht22.humidity;
-            
-            dht22Temp.textContent = t !== null && t !== undefined ? parseFloat(t).toFixed(1) : '--';
-            dht22TempBar.style.width = t !== null && t !== undefined ? `${Math.min(100, Math.max(0, (t / 50) * 100))}%` : '0%';
-            
-            dht22Humi.textContent = h !== null && h !== undefined ? parseFloat(h).toFixed(0) : '--';
-            dht22HumiBar.style.width = h !== null && h !== undefined ? `${Math.min(100, Math.max(0, h))}%` : '0%';
         }
     }
 

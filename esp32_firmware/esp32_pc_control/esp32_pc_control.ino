@@ -23,14 +23,13 @@
 // --- CONFIGURATION SETUP ---
 // WiFi credentials are now managed dynamically via WiFiManager captive portal.
 // Server URL is saved in ESP32 Preferences (Non-Volatile Storage).
-char server_url[256] = "http://192.168.1.100:3000/data"; // Default fallback URL
+char server_url[256] = "https://pccontroll.espserver.site/data"; // Default fallback URL
 bool shouldSaveConfig = false;
 
 #define POLL_INTERVAL_MS 5000 // Send data and fetch action every 5 seconds
 
 // --- HARDWARE CONFIGURATION ---
-#define DHT11_PIN       14
-#define DHT22_PIN       27
+#define DHT11_PIN       4
 #define POWER_RELAY_PIN 25
 #define RESET_RELAY_PIN 25
 
@@ -39,11 +38,9 @@ bool shouldSaveConfig = false;
 #define RELAY_ACTIVE_LOW true 
 
 #define DHT11_TYPE DHT11
-#define DHT22_TYPE DHT22
 
 // --- INSTANTIATE SENSORS ---
 DHT dht11(DHT11_PIN, DHT11_TYPE);
-DHT dht22(DHT22_PIN, DHT22_TYPE);
 
 // --- GLOBAL VARIABLES ---
 unsigned long lastPollTime = 0;
@@ -119,8 +116,7 @@ void setup() {
 
   // Initialize Sensors
   dht11.begin();
-  dht22.begin();
-  Serial.println("[INFO] DHT Sensors initialized.");
+  Serial.println("[INFO] DHT Sensor initialized.");
 
   // Connect to Wi-Fi using WiFiManager
   setupWiFiManager();
@@ -189,10 +185,6 @@ void sendDataAndCheckAction() {
   // Read DHT11
   float t11 = dht11.readTemperature();
   float h11 = dht11.readHumidity();
-  
-  // Read DHT22
-  float t22 = dht22.readTemperature();
-  float h22 = dht22.readHumidity();
 
   // Create JSON Document
   // StaticJsonDocument is compatible with ArduinoJson v6
@@ -208,16 +200,6 @@ void sendDataAndCheckAction() {
     dht11Obj["temperature"] = serialized("null");
     dht11Obj["humidity"] = serialized("null");
     Serial.println("[WARN] DHT11 read failed.");
-  }
-
-  JsonObject dht22Obj = doc.createNestedObject("dht22");
-  if (!isnan(t22) && !isnan(h22)) {
-    dht22Obj["temperature"] = t22;
-    dht22Obj["humidity"] = h22;
-  } else {
-    dht22Obj["temperature"] = serialized("null");
-    dht22Obj["humidity"] = serialized("null");
-    Serial.println("[WARN] DHT22 read failed.");
   }
 
   // Include queued logs if any

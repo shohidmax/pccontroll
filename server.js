@@ -10,7 +10,7 @@ const server = http.createServer(app);
 // This is the crucial part that allows the browser's real-time connection.
 const io = socketIo(server, {
   cors: {
-    origin: "https://pccontroll.onrender.com", // Must exactly match your dashboard's URL
+    origin: "https://pccontroll.espserver.site", // Must exactly match your dashboard's URL
     methods: ["GET", "POST"]
   }
 });
@@ -27,22 +27,20 @@ let actionToTake = 'none';
 let lastSeenTimeout;
 let deviceStatus = 'Offline';
 let latestSensorData = {
-    dht11: { temperature: null, humidity: null },
-    dht22: { temperature: null, humidity: null }
+    dht11: { temperature: null, humidity: null }
 };
 
 const loginAttempts = {};
 const BLOCK_DURATION = 5 * 60 * 1000;
 
 app.post('/data', (req, res) => {
-    const { log, dht11, dht22 } = req.body;
+    const { log, dht11 } = req.body;
     
     if (log) {
         io.emit('deviceLog', log);
     }
 
     if (dht11) latestSensorData.dht11 = dht11;
-    if (dht22) latestSensorData.dht22 = dht22;
     
     io.emit('sensorUpdate', latestSensorData);
 
