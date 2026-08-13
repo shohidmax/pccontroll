@@ -49,22 +49,67 @@ const int RELAY_ON = RELAY_ACTIVE_LOW ? LOW : HIGH;
 const int RELAY_OFF = RELAY_ACTIVE_LOW ? HIGH : LOW;
 
 void setupWiFiManager() {
+  // Explicitly set WiFi to station mode
+  WiFi.mode(WIFI_STA);
+  delay(100);
+
   WiFiManager wm;
   
-  // Automatically connect using saved credentials.
-  // If connection fails, it launches a captive portal AP named "ESP32_PC_Controller_AP" (password: password123)
   // Set configuration portal timeout to 180 seconds to avoid blocking indefinitely.
   wm.setConfigPortalTimeout(180);
 
-  Serial.println("[INFO] Attempting to connect to WiFi via WiFiManager...");
-  if (!wm.autoConnect("ESP32_PC_Controller_AP", "password123")) {
-    Serial.println("[ERROR] Failed to connect and hit configuration timeout. Restarting ESP32...");
-    delay(3000);
-    ESP.restart();
+  Serial.println("[INFO] Attempting to connect to WiFi...");
+
+  bool connected = false;
+  
+  // 1. Try stored WiFi credentials if they exist
+  if (WiFi.SSID() != "") {
+    Serial.println("[INFO] Trying stored WiFi credentials...");
+    WiFi.begin();
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+      delay(500);
+      Serial.print(".");
+      attempts++;
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+      connected = true;
+    }
+  }
+
+  // 2. If not connected, try the user's default credentials (SSID: War)
+  if (!connected) {
+    Serial.println("\n[INFO] Disconnecting previous attempt and trying default WiFi credentials (SSID: War)...");
+    WiFi.disconnect(true);
+    delay(1000); // Give the radio time to settle
+    
+    WiFi.begin("War", "Hello2025@");
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+      delay(500);
+      Serial.print(".");
+      attempts++;
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+      connected = true;
+    }
+  }
+
+  // 3. If still not connected, start the captive portal AP
+  if (!connected) {
+    Serial.println("\n[WARN] Failed to connect to default or stored WiFi. Disconnecting and starting Captive Portal...");
+    WiFi.disconnect(true);
+    delay(1000); // Give the radio time to settle before WiFiManager starts AP mode
+    
+    if (!wm.autoConnect("ESP32_PC_Controller_AP", "password123")) {
+      Serial.println("[ERROR] Failed to connect and hit configuration timeout. Restarting ESP32...");
+      delay(3000);
+      ESP.restart();
+    }
   }
 
   // Connected to Wi-Fi
-  Serial.println("[SUCCESS] WiFi Connected!");
+  Serial.println("\n[SUCCESS] WiFi Connected!");
   Serial.print("[INFO] IP Address: ");
   Serial.println(WiFi.localIP());
 }
