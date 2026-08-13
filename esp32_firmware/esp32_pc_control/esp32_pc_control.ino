@@ -18,13 +18,10 @@
 #include <ArduinoJson.h>
 #include "DHT.h"
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
-#include <Preferences.h>
 
 // --- CONFIGURATION SETUP ---
-// WiFi credentials are now managed dynamically via WiFiManager captive portal.
-// Server URL is saved in ESP32 Preferences (Non-Volatile Storage).
-char server_url[256] = "https://pccontroll.espserver.site/data"; // Default fallback URL
-bool shouldSaveConfig = false;
+// WiFi credentials are managed dynamically via WiFiManager captive portal.
+const char* server_url = "https://pccontroll.espserver.site/data";
 
 #define POLL_INTERVAL_MS 5000 // Send data and fetch action every 5 seconds
 
@@ -51,28 +48,9 @@ bool bootLogSent = false;
 const int RELAY_ON = RELAY_ACTIVE_LOW ? LOW : HIGH;
 const int RELAY_OFF = RELAY_ACTIVE_LOW ? HIGH : LOW;
 
-void saveConfigCallback() {
-  Serial.println("[INFO] Dynamic configuration change detected. Flagged to save.");
-  shouldSaveConfig = true;
-}
-
 void setupWiFiManager() {
-  Preferences preferences;
-  preferences.begin("pc_control", false);
-  String savedUrl = preferences.getString("server_url", "http://192.168.1.100:3000/data");
-  savedUrl.toCharArray(server_url, sizeof(server_url));
-  Serial.print("[INFO] Loaded Server URL from NVS: ");
-  Serial.println(server_url);
-
   WiFiManager wm;
   
-  // Set configuration portal save callback
-  wm.setSaveConfigCallback(saveConfigCallback);
-
-  // Add Server URL as a custom parameter
-  WiFiManagerParameter custom_server_url("server_url", "PC Server URL", server_url, sizeof(server_url));
-  wm.addParameter(&custom_server_url);
-
   // Automatically connect using saved credentials.
   // If connection fails, it launches a captive portal AP named "ESP32_PC_Controller_AP" (password: password123)
   // Set configuration portal timeout to 180 seconds to avoid blocking indefinitely.
@@ -89,17 +67,6 @@ void setupWiFiManager() {
   Serial.println("[SUCCESS] WiFi Connected!");
   Serial.print("[INFO] IP Address: ");
   Serial.println(WiFi.localIP());
-
-  // Save custom parameters if updated during captive portal configuration
-  if (shouldSaveConfig) {
-    strncpy(server_url, custom_server_url.getValue(), sizeof(server_url) - 1);
-    server_url[sizeof(server_url) - 1] = '\0';
-    preferences.putString("server_url", String(server_url));
-    Serial.print("[SUCCESS] Saved new Server URL to Preferences: ");
-    Serial.println(server_url);
-  }
-  
-  preferences.end();
 }
 
 void setup() {
@@ -130,13 +97,9 @@ void loop() {
     String cmd = Serial.readStringUntil('\n');
     cmd.trim();
     if (cmd.equalsIgnoreCase("reset")) {
-      Serial.println("[SYSTEM] Reset command received. Wiping WiFi credentials and Preferences...");
+      Serial.println("[SYSTEM] Reset command received. Wiping WiFi credentials...");
       WiFiManager wm;
       wm.resetSettings();
-      Preferences preferences;
-      preferences.begin("pc_control", false);
-      preferences.clear();
-      preferences.end();
       Serial.println("[SYSTEM] Reset complete. Restarting ESP32...");
       delay(1000);
       ESP.restart();
